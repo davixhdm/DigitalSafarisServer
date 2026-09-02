@@ -15,9 +15,11 @@ const getSiteConfig = async (req, res, next) => {
         const filterEnabledLink = (key) => {
             const val = config[key];
             if (val && typeof val === 'object' && 'enabled' in val) {
-                return val.enabled ? val.url || val : null;
+                if (!val.enabled) return null;
+                const url = val.url || val.value || '';
+                return url && String(url).trim() ? url : null;
             }
-            return val || null;
+            return val && String(val).trim() ? val : null;
         };
 
         const filtered = {
