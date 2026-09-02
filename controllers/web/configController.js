@@ -12,7 +12,6 @@ const getSiteConfig = async (req, res, next) => {
             config[s.key] = s.value;
         });
 
-        // Filter links by enabled condition
         const filterEnabledLink = (key) => {
             const val = config[key];
             if (val && typeof val === 'object' && 'enabled' in val) {
@@ -25,17 +24,20 @@ const getSiteConfig = async (req, res, next) => {
             site_name: config.site_name || 'DigitalSafari',
             site_tagline: config.site_tagline || 'Your journey. One platform.',
             site_description: config.site_description || 'Connecting accommodation, food, transportation, and experiences through one digital platform.',
+            site_logo: filterEnabledLink('site_logo'),
+            primary_color: config.primary_color || '#10b981',
+            secondary_color: config.secondary_color || '#0ea5e9',
             support_email: filterEnabledLink('support_email'),
             support_phone: filterEnabledLink('support_phone'),
             whatsapp_number: filterEnabledLink('whatsapp_number'),
 
-           app_links: {
-    customer: filterEnabledLink('customer_app_url'),
-    partner_landing: filterEnabledLink('partner_landing_url'),
-    transport_partner: filterEnabledLink('transport_partner_url'),
-    restaurant_partner: filterEnabledLink('restaurant_partner_url'),
-    accommodation_partner: filterEnabledLink('accommodation_partner_url'),
-},
+            app_links: {
+                customer: filterEnabledLink('customer_app_url'),
+                partner_landing: filterEnabledLink('partner_landing_url'),
+                transport_partner: filterEnabledLink('transport_partner_url'),
+                restaurant_partner: filterEnabledLink('restaurant_partner_url'),
+                accommodation_partner: filterEnabledLink('accommodation_partner_url'),
+            },
 
             social_links: {
                 instagram: filterEnabledLink('social_instagram'),

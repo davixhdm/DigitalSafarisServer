@@ -72,6 +72,7 @@ const getPublicSettings = async (req, res, next) => {
             'transport_partner_url',
             'restaurant_partner_url',
             'accommodation_partner_url',
+            'partner_landing_url',
             'social_instagram', 'social_tiktok', 'social_facebook',
             'social_linkedin', 'social_x', 'social_youtube',
             'whatsapp_number',
