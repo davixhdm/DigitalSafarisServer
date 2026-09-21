@@ -61,15 +61,6 @@ const updateCommission = async (req, res, next) => {
     } catch (error) { next(error); }
 };
 
-const filterEnabledLink = (val) => {
-    if (val && typeof val === 'object' && 'enabled' in val) {
-        if (!val.enabled) return null;
-        const url = val.url || val.value || '';
-        return url && String(url).trim() ? url : null;
-    }
-    return val && String(val).trim() ? val : null;
-};
-
 const getPublicSettings = async (req, res, next) => {
     try {
         const publicKeys = [
@@ -81,7 +72,6 @@ const getPublicSettings = async (req, res, next) => {
             'transport_partner_url',
             'restaurant_partner_url',
             'accommodation_partner_url',
-            'partner_landing_url',
             'social_instagram', 'social_tiktok', 'social_facebook',
             'social_linkedin', 'social_x', 'social_youtube',
             'whatsapp_number',
@@ -89,9 +79,7 @@ const getPublicSettings = async (req, res, next) => {
         ];
         const settings = await PlatformSettings.find({ key: { $in: publicKeys } });
         const result = {};
-        settings.forEach(s => {
-            result[s.key] = filterEnabledLink(s.value);
-        });
+        settings.forEach(s => { result[s.key] = s.value; });
         res.json({ success: true, settings: result });
     } catch (error) { next(error); }
 };

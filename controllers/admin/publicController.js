@@ -1,4 +1,15 @@
 const PlatformSettings = require('../../models/admin/PlatformSettings');
+const emailService = require('../../services/emailService');
+const logger = require('../../utils/logger');
+
+const filterEnabledLink = (val) => {
+    if (val && typeof val === 'object' && !Array.isArray(val) && 'enabled' in val) {
+        if (!val.enabled) return null;
+        const url = val.url || val.value || '';
+        return url && String(url).trim() ? url : null;
+    }
+    return val;
+};
 
 const getPublicConfig = async (req, res, next) => {
     try {
@@ -13,7 +24,7 @@ const getPublicConfig = async (req, res, next) => {
         ];
         const settings = await PlatformSettings.find({ key: { $in: keys } });
         const config = {};
-        settings.forEach(s => { config[s.key] = s.value; });
+        settings.forEach(s => { config[s.key] = filterEnabledLink(s.value); });
         res.json({ success: true, config });
     } catch (error) { next(error); }
 };
@@ -67,13 +78,11 @@ const submitContact = async (req, res, next) => {
         if (!name || !email || !message) {
             return res.status(400).json({ success: false, message: 'Name, email, and message are required.' });
         }
-        const { customer: customerEmails } = require('../../services/emailService');
-        const logger = require('../../utils/logger');
 
         const adminEmailSetting = await PlatformSettings.findOne({ key: 'admin_email' });
         const adminEmail = adminEmailSetting?.value || 'admin@digitalsafaris.com';
 
-        await customerEmails.send({
+        await emailService.send({
             to: adminEmail,
             subject: `Contact Form: ${subject || 'New Message'} from ${name}`,
             htmlBody: `<h2>New Contact Message</h2><p><strong>From:</strong> ${name} (${email})</p><p><strong>Subject:</strong> ${subject || 'N/A'}</p><p><strong>Message:</strong></p><p>${message}</p>`,
