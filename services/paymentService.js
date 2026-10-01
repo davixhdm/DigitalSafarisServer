@@ -8,7 +8,7 @@ if (STRIPE.SECRET_KEY) {
 }
 
 const getMpesaBaseUrl = () => {
-    return MPESA.ENV === 'production' ? 'https://api.safaricom.co.ke' : 'https://sandbox.safaricom.co.ke';
+    return MPESA.BASE_URL || (MPESA.ENV === 'production' ? 'https://api.safaricom.co.ke' : 'https://sandbox.safaricom.co.ke');
 };
 
 const createStripePaymentIntent = async ({ amount, currency = 'kes', metadata = {} }) => {
@@ -87,17 +87,24 @@ const stkPush = async ({ phone, amount, reference, description }) => {
         const timestamp = new Date().toISOString().replace(/[-:T.]/g, '').slice(0, 14);
         const password = Buffer.from(`${MPESA.SHORTCODE}${MPESA.PASSKEY}${timestamp}`).toString('base64');
         const formattedPhone = phone.replace(/^0/, '254').replace(/^\+254/, '254');
+        const partyB = MPESA.TILL_NUMBER || MPESA.SHORTCODE;
+        const transactionType = MPESA.TRANSACTION_TYPE || 'CustomerBuyGoodsOnline';
 
         const payload = {
-            BusinessShortCode: MPESA.SHORTCODE, Password: password, Timestamp: timestamp,
-            TransactionType: 'CustomerPayBillOnline', Amount: Math.round(amount),
-            PartyA: formattedPhone, PartyB: MPESA.SHORTCODE, PhoneNumber: formattedPhone,
+            BusinessShortCode: MPESA.SHORTCODE,
+            Password: password,
+            Timestamp: timestamp,
+            TransactionType: transactionType,
+            Amount: Math.round(amount),
+            PartyA: formattedPhone,
+            PartyB: partyB,
+            PhoneNumber: formattedPhone,
             CallBackURL: MPESA.CALLBACK_URL,
             AccountReference: (reference || 'Payment').substring(0, 12),
             TransactionDesc: (description || 'Digital Safaris Payment').substring(0, 13),
         };
 
-        logger.info(`M-Pesa STK: Phone=${formattedPhone} Amount=${amount}`);
+        logger.info(`M-Pesa STK: Phone=${formattedPhone} Amount=${amount} Type=${transactionType} PartyB=${partyB}`);
 
         const { data } = await axios.post(`${baseUrl}/mpesa/stkpush/v1/processrequest`, payload, {
             headers: { Authorization: `Bearer ${token}` },
@@ -133,7 +140,10 @@ const queryStkStatus = async (checkoutRequestId) => {
         const password = Buffer.from(`${MPESA.SHORTCODE}${MPESA.PASSKEY}${timestamp}`).toString('base64');
 
         const { data } = await axios.post(`${baseUrl}/mpesa/stkpushquery/v1/query`, {
-            BusinessShortCode: MPESA.SHORTCODE, Password: password, Timestamp: timestamp, CheckoutRequestID: checkoutRequestId,
+            BusinessShortCode: MPESA.SHORTCODE,
+            Password: password,
+            Timestamp: timestamp,
+            CheckoutRequestID: checkoutRequestId,
         }, { headers: { Authorization: `Bearer ${token}` } });
 
         return { resultCode: data.ResultCode, resultDesc: data.ResultDesc };
