@@ -22,6 +22,45 @@ const getPaymentMethods = async (req, res, next) => {
     } catch (error) { next(error); }
 };
 
+const findOrCreateWallet = async (customerId, currency = 'KES') => {
+    return await Wallet.findOneAndUpdate(
+        { customer: String(customerId) },
+        { $setOnInsert: { balance: 0, currency } },
+        { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+};
+
+const creditWalletFromPayment = async (payment) => {
+    const customerId = String(payment.customer);
+    const currency = payment.currency || 'KES';
+    const wallet = await findOrCreateWallet(customerId, currency);
+
+    wallet.balance += payment.amount;
+    wallet.transactions.push({
+        type: 'credit',
+        amount: payment.amount,
+        description: 'Top-up via ' + (payment.method === 'mpesa' ? 'M-Pesa' : payment.method),
+        reference: payment.reference,
+        createdAt: new Date(),
+    });
+    await wallet.save();
+
+    const customer = await Customer.findById(payment.customer);
+    if (customer) {
+        customerEmails.sendWalletTopup(customer, payment.amount, wallet.balance)
+            .catch(e => logger.error('Topup email failed: ' + e.message));
+    }
+
+    createNotification({
+        customerId,
+        type: 'payment',
+        title: 'Wallet Topped Up',
+        message: `KES ${payment.amount.toLocaleString()} added to your wallet.`,
+    }).catch(e => logger.error('Notification failed: ' + e.message));
+
+    return wallet;
+};
+
 const createBookingFromPayment = async (customerId, data, paymentId) => {
     const Room = require('../../models/accommodation/Room');
     const Property = require('../../models/accommodation/Property');
@@ -239,24 +278,24 @@ const processPayment = async (req, res, next) => {
         const reference = 'DS-' + Date.now();
 
         if (method === 'wallet') {
-            const customerId = req.user._id.toString();
-            const wallet = await Wallet.findOne({ customer: customerId });
-            if (!wallet || wallet.balance < amount) return res.status(400).json({ success: false, message: 'Insufficient wallet balance.' });
+            const customerId = String(req.user._id);
+            const wallet = await findOrCreateWallet(customerId, 'KES');
+            if (wallet.balance < amount) return res.status(400).json({ success: false, message: 'Insufficient wallet balance.' });
 
             wallet.balance -= amount;
             wallet.transactions.push({ type: 'debit', amount, description: 'Payment #' + reference, reference, createdAt: new Date() });
             await wallet.save();
 
             const payment = await Payment.create({
-                customer: req.user._id, amount, method: 'wallet', type: 'payment',
+                customer: customerId, amount, method: 'wallet', type: 'payment',
                 status: 'completed', reference, transactionId: reference,
                 metadata: { bookingData, orderData, rideData },
             });
 
             let createdItem = null;
-            if (bookingData) createdItem = await createBookingFromPayment(req.user._id, bookingData, payment._id);
-            else if (orderData) createdItem = await createOrderFromPayment(req.user._id, orderData, payment._id);
-            else if (rideData) createdItem = await createRideFromPayment(req.user._id, rideData, payment._id);
+            if (bookingData) createdItem = await createBookingFromPayment(customerId, bookingData, payment._id);
+            else if (orderData) createdItem = await createOrderFromPayment(customerId, orderData, payment._id);
+            else if (rideData) createdItem = await createRideFromPayment(customerId, rideData, payment._id);
 
             customerEmails.sendPaymentReceived(req.user, { amount, method: 'Wallet', reference }).catch(e => logger.error('Email failed: ' + e.message));
 
@@ -266,13 +305,13 @@ const processPayment = async (req, res, next) => {
         if (method === 'mpesa') {
             if (!phone) return res.status(400).json({ success: false, message: 'Phone required for M-Pesa.' });
             const { checkoutRequestId } = await mpesaService.stkPush({ phone, amount, reference, description: 'Digital Safaris Payment' });
-            await Payment.create({ customer: req.user._id, amount, method: 'mpesa', type: 'payment', status: 'pending', reference, transactionId: checkoutRequestId, metadata: { bookingData, orderData, rideData } });
+            await Payment.create({ customer: String(req.user._id), amount, method: 'mpesa', type: 'payment', status: 'pending', reference, transactionId: checkoutRequestId, metadata: { bookingData, orderData, rideData } });
             return res.json({ success: true, checkoutRequestId, reference, message: 'M-Pesa STK push sent. Enter PIN.' });
         }
 
         if (method === 'stripe') {
-            const { clientSecret, paymentIntentId } = await stripeService.createPaymentIntent({ amount, currency: 'kes', metadata: { customerId: req.user._id.toString() } });
-            await Payment.create({ customer: req.user._id, amount, method: 'stripe', type: 'payment', status: 'pending', reference, transactionId: paymentIntentId, metadata: { bookingData, orderData, rideData } });
+            const { clientSecret, paymentIntentId } = await stripeService.createPaymentIntent({ amount, currency: 'kes', metadata: { customerId: String(req.user._id) } });
+            await Payment.create({ customer: String(req.user._id), amount, method: 'stripe', type: 'payment', status: 'pending', reference, transactionId: paymentIntentId, metadata: { bookingData, orderData, rideData } });
             return res.json({ success: true, clientSecret, paymentIntentId, reference, message: 'Stripe payment initiated.' });
         }
 
@@ -283,35 +322,51 @@ const processPayment = async (req, res, next) => {
 const verifyPayment = async (req, res, next) => {
     try {
         const { paymentIntentId, checkoutRequestId } = req.body;
-        const query = { customer: req.user._id };
+        const query = { customer: String(req.user._id) };
         if (paymentIntentId) query.transactionId = paymentIntentId;
         if (checkoutRequestId) query.transactionId = checkoutRequestId;
 
         const payment = await Payment.findOne(query);
         if (!payment) return res.status(404).json({ success: false, message: 'Payment not found.' });
 
+        if (payment.status !== 'pending') {
+            return res.json({ success: true, payment, message: 'Payment already processed.' });
+        }
+
         if (payment.method === 'stripe') {
             const { status } = await stripeService.confirmPayment(payment.transactionId);
-            payment.status = status === 'succeeded' ? 'completed' : 'failed';
-            await payment.save();
-            if (payment.status === 'completed' && payment.metadata) {
-                if (payment.metadata.bookingData) await createBookingFromPayment(payment.customer, payment.metadata.bookingData, payment._id);
-                if (payment.metadata.orderData) await createOrderFromPayment(payment.customer, payment.metadata.orderData, payment._id);
-                if (payment.metadata.rideData) await createRideFromPayment(payment.customer, payment.metadata.rideData, payment._id);
+            const updated = await Payment.findOneAndUpdate(
+                { _id: payment._id, status: 'pending' },
+                { status: status === 'succeeded' ? 'completed' : 'failed' },
+                { new: true }
+            );
+            if (!updated) return res.json({ success: true, payment, message: 'Payment already processed.' });
+
+            if (updated.status === 'completed' && updated.metadata) {
+                if (updated.metadata.topup) await creditWalletFromPayment(updated);
+                if (updated.metadata.bookingData) await createBookingFromPayment(updated.customer, updated.metadata.bookingData, updated._id);
+                if (updated.metadata.orderData) await createOrderFromPayment(updated.customer, updated.metadata.orderData, updated._id);
+                if (updated.metadata.rideData) await createRideFromPayment(updated.customer, updated.metadata.rideData, updated._id);
             }
-            return res.json({ success: true, payment });
+            return res.json({ success: true, payment: updated });
         }
 
         if (payment.method === 'mpesa') {
             const { resultCode } = await mpesaService.queryStkStatus(payment.transactionId);
-            payment.status = resultCode === 0 ? 'completed' : 'failed';
-            await payment.save();
-            if (payment.status === 'completed' && payment.metadata) {
-                if (payment.metadata.bookingData) await createBookingFromPayment(payment.customer, payment.metadata.bookingData, payment._id);
-                if (payment.metadata.orderData) await createOrderFromPayment(payment.customer, payment.metadata.orderData, payment._id);
-                if (payment.metadata.rideData) await createRideFromPayment(payment.customer, payment.metadata.rideData, payment._id);
+            const updated = await Payment.findOneAndUpdate(
+                { _id: payment._id, status: 'pending' },
+                { status: String(resultCode) === '0' ? 'completed' : 'failed' },
+                { new: true }
+            );
+            if (!updated) return res.json({ success: true, payment, message: 'Payment already processed.' });
+
+            if (updated.status === 'completed' && updated.metadata) {
+                if (updated.metadata.topup) await creditWalletFromPayment(updated);
+                if (updated.metadata.bookingData) await createBookingFromPayment(updated.customer, updated.metadata.bookingData, updated._id);
+                if (updated.metadata.orderData) await createOrderFromPayment(updated.customer, updated.metadata.orderData, updated._id);
+                if (updated.metadata.rideData) await createRideFromPayment(updated.customer, updated.metadata.rideData, updated._id);
             }
-            return res.json({ success: true, payment });
+            return res.json({ success: true, payment: updated });
         }
 
         res.json({ success: true, payment });
@@ -321,19 +376,52 @@ const verifyPayment = async (req, res, next) => {
 const mpesaCallback = async (req, res, next) => {
     try {
         const { Body } = req.body;
-        const { CheckoutRequestID, ResultCode } = Body.stkCallback;
-        const status = ResultCode === 0 ? 'completed' : 'failed';
-        const payment = await Payment.findOneAndUpdate({ transactionId: CheckoutRequestID }, { status }, { new: true });
-        if (payment && status === 'completed' && payment.metadata) {
-            if (payment.metadata.bookingData) await createBookingFromPayment(payment.customer, payment.metadata.bookingData, payment._id);
-            if (payment.metadata.orderData) await createOrderFromPayment(payment.customer, payment.metadata.orderData, payment._id);
-            if (payment.metadata.rideData) await createRideFromPayment(payment.customer, payment.metadata.rideData, payment._id);
 
-            const customer = await Customer.findById(payment.customer);
-            if (customer) {
-                customerEmails.sendPaymentReceived(customer, { amount: payment.amount, method: 'M-Pesa', reference: payment.reference }).catch(e => logger.error('Email failed: ' + e.message));
+        if (!Body?.stkCallback) {
+            logger.warn('M-Pesa callback: invalid payload');
+            return res.json({ success: true });
+        }
+
+        const { CheckoutRequestID, ResultCode } = Body.stkCallback;
+
+        if (!CheckoutRequestID) {
+            logger.warn('M-Pesa callback: missing CheckoutRequestID');
+            return res.json({ success: true });
+        }
+
+        const status = String(ResultCode) === '0' ? 'completed' : 'failed';
+
+        const payment = await Payment.findOneAndUpdate(
+            { transactionId: CheckoutRequestID, status: 'pending' },
+            { status },
+            { new: true }
+        );
+
+        if (!payment) {
+            const existing = await Payment.findOne({ transactionId: CheckoutRequestID });
+            if (existing) {
+                logger.info(`M-Pesa callback retry ignored: ${CheckoutRequestID} (already ${existing.status})`);
+            } else {
+                logger.warn(`M-Pesa callback for unknown payment: ${CheckoutRequestID}`);
+            }
+            return res.json({ success: true });
+        }
+
+        if (status === 'completed' && payment.metadata) {
+            if (payment.metadata.topup) {
+                await creditWalletFromPayment(payment);
+            } else {
+                if (payment.metadata.bookingData) await createBookingFromPayment(payment.customer, payment.metadata.bookingData, payment._id);
+                if (payment.metadata.orderData) await createOrderFromPayment(payment.customer, payment.metadata.orderData, payment._id);
+                if (payment.metadata.rideData) await createRideFromPayment(payment.customer, payment.metadata.rideData, payment._id);
+
+                const customer = await Customer.findById(payment.customer);
+                if (customer) {
+                    customerEmails.sendPaymentReceived(customer, { amount: payment.amount, method: 'M-Pesa', reference: payment.reference }).catch(e => logger.error('Email failed: ' + e.message));
+                }
             }
         }
+
         res.json({ success: true });
     } catch (error) { next(error); }
 };
@@ -341,15 +429,17 @@ const mpesaCallback = async (req, res, next) => {
 const getPaymentHistory = async (req, res, next) => {
     try {
         const { page = 1, limit = 10 } = req.query;
-        const payments = await Payment.find({ customer: req.user._id }).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(parseInt(limit));
-        const total = await Payment.countDocuments({ customer: req.user._id });
+        const customerId = String(req.user._id);
+        const payments = await Payment.find({ customer: customerId }).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(parseInt(limit));
+        const total = await Payment.countDocuments({ customer: customerId });
         res.json({ success: true, payments, total, page: parseInt(page), pages: Math.ceil(total / limit) });
     } catch (error) { next(error); }
 };
 
 const getPayment = async (req, res, next) => {
     try {
-        const payment = await Payment.findOne({ _id: req.params.id, customer: req.user._id });
+        const customerId = String(req.user._id);
+        const payment = await Payment.findOne({ _id: req.params.id, customer: customerId });
         if (!payment) return res.status(404).json({ success: false, message: 'Payment not found.' });
         res.json({ success: true, payment });
     } catch (error) { next(error); }

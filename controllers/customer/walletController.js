@@ -11,14 +11,19 @@ const getPlatformCurrency = async () => {
     return setting?.value || 'KES';
 };
 
+const findOrCreateWallet = async (customerId, currency = 'KES') => {
+    return await Wallet.findOneAndUpdate(
+        { customer: String(customerId) },
+        { $setOnInsert: { balance: 0, currency } },
+        { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+};
+
 const getWallet = async (req, res, next) => {
     try {
-        const customerId = req.user._id.toString();
-        let wallet = await Wallet.findOne({ customer: customerId });
-        if (!wallet) {
-            const currency = await getPlatformCurrency();
-            wallet = await Wallet.create({ customer: customerId, balance: 0, currency });
-        }
+        const customerId = String(req.user._id);
+        const currency = await getPlatformCurrency();
+        const wallet = await findOrCreateWallet(customerId, currency);
         res.json({ success: true, wallet });
     } catch (error) { next(error); }
 };
@@ -26,7 +31,7 @@ const getWallet = async (req, res, next) => {
 const topUp = async (req, res, next) => {
     try {
         const { amount, method } = req.body;
-        const customerId = req.user._id.toString();
+        const customerId = String(req.user._id);
         const currency = await getPlatformCurrency();
 
         if (!amount || amount <= 0) {
@@ -54,38 +59,7 @@ const topUp = async (req, res, next) => {
             });
             paymentResult = { checkoutRequestId, reference };
         } else if (method === 'wallet') {
-            let wallet = await Wallet.findOne({ customer: customerId });
-            if (!wallet) {
-                wallet = await Wallet.create({ customer: customerId, balance: 0, currency });
-            }
-            wallet.balance += Number(amount);
-            wallet.transactions.push({
-                type: 'credit',
-                amount: Number(amount),
-                description: 'Wallet top-up',
-                reference: 'TOPUP-' + Date.now(),
-                createdAt: new Date(),
-            });
-            await wallet.save();
-
-            customerEmails.sendWalletTopup(req.user, amount, wallet.balance).catch(function(e) {
-                logger.error('Topup email failed: ' + e.message);
-            });
-
-            createNotification({
-                customerId: customerId,
-                type: 'payment',
-                title: 'Wallet Topped Up',
-                message: 'KES ' + amount.toLocaleString() + ' added to your wallet.',
-            }).catch(function(e) {
-                logger.error('Notification failed: ' + e.message);
-            });
-
-            return res.json({
-                success: true,
-                wallet,
-                message: 'KES ' + amount.toLocaleString() + ' added to wallet.',
-            });
+            return res.status(400).json({ success: false, message: 'Cannot top up wallet with wallet.' });
         } else {
             return res.status(400).json({ success: false, message: 'Invalid payment method.' });
         }
@@ -99,7 +73,7 @@ const topUp = async (req, res, next) => {
             status: 'pending',
             transactionId: paymentResult.paymentIntentId || paymentResult.checkoutRequestId,
             reference: paymentResult.reference || paymentResult.paymentIntentId,
-            metadata: paymentResult,
+            metadata: { ...paymentResult, topup: true },
         });
 
         res.json({
@@ -113,41 +87,44 @@ const topUp = async (req, res, next) => {
 const confirmTopUp = async (req, res, next) => {
     try {
         const { paymentIntentId, checkoutRequestId } = req.body;
-        const customerId = req.user._id.toString();
+        const customerId = String(req.user._id);
         const currency = await getPlatformCurrency();
         const query = { customer: customerId, status: 'pending' };
         if (paymentIntentId) query.transactionId = paymentIntentId;
         if (checkoutRequestId) query.transactionId = checkoutRequestId;
 
-        const payment = await Payment.findOne(query);
-        if (!payment) return res.status(404).json({ success: false, message: 'Payment not found.' });
+        const existing = await Payment.findOne(query);
+        if (!existing) return res.status(404).json({ success: false, message: 'Payment not found.' });
 
-        payment.status = 'completed';
-        await payment.save();
-
-        let wallet = await Wallet.findOne({ customer: customerId });
-        if (!wallet) {
-            wallet = await Wallet.create({ customer: customerId, balance: 0, currency });
+        const updated = await Payment.findOneAndUpdate(
+            { _id: existing._id, status: 'pending' },
+            { status: 'completed' },
+            { new: true }
+        );
+        if (!updated) {
+            return res.json({ success: true, message: 'Top-up already confirmed.' });
         }
-        wallet.balance += payment.amount;
+
+        const wallet = await findOrCreateWallet(customerId, currency);
+        wallet.balance += updated.amount;
         wallet.transactions.push({
             type: 'credit',
-            amount: payment.amount,
-            description: 'Top-up via ' + payment.method,
-            reference: payment.reference,
+            amount: updated.amount,
+            description: 'Top-up via ' + updated.method,
+            reference: updated.reference,
             createdAt: new Date(),
         });
         await wallet.save();
 
-        customerEmails.sendWalletTopup(req.user, payment.amount, wallet.balance).catch(function(e) {
+        customerEmails.sendWalletTopup(req.user, updated.amount, wallet.balance).catch(function(e) {
             logger.error('Topup email failed: ' + e.message);
         });
 
         createNotification({
-            customerId: customerId,
+            customerId,
             type: 'payment',
             title: 'Wallet Topped Up',
-            message: 'KES ' + payment.amount.toLocaleString() + ' added to your wallet.',
+            message: 'KES ' + updated.amount.toLocaleString() + ' added to your wallet.',
         }).catch(function(e) {
             logger.error('Notification failed: ' + e.message);
         });
@@ -158,12 +135,9 @@ const confirmTopUp = async (req, res, next) => {
 
 const addPaymentMethod = async (req, res, next) => {
     try {
-        const customerId = req.user._id.toString();
-        let wallet = await Wallet.findOne({ customer: customerId });
-        if (!wallet) {
-            const currency = await getPlatformCurrency();
-            wallet = await Wallet.create({ customer: customerId, balance: 0, currency });
-        }
+        const customerId = String(req.user._id);
+        const currency = await getPlatformCurrency();
+        const wallet = await findOrCreateWallet(customerId, currency);
         wallet.savedMethods.push(req.body);
         await wallet.save();
         res.json({ success: true, methods: wallet.savedMethods });
@@ -172,7 +146,7 @@ const addPaymentMethod = async (req, res, next) => {
 
 const updatePaymentMethod = async (req, res, next) => {
     try {
-        const customerId = req.user._id.toString();
+        const customerId = String(req.user._id);
         const wallet = await Wallet.findOne({ customer: customerId });
         if (!wallet) return res.status(404).json({ success: false, message: 'Wallet not found.' });
         const method = wallet.savedMethods.id(req.params.id);
@@ -185,7 +159,7 @@ const updatePaymentMethod = async (req, res, next) => {
 
 const removePaymentMethod = async (req, res, next) => {
     try {
-        const customerId = req.user._id.toString();
+        const customerId = String(req.user._id);
         const wallet = await Wallet.findOne({ customer: customerId });
         if (!wallet) return res.status(404).json({ success: false, message: 'Wallet not found.' });
         wallet.savedMethods.pull({ _id: req.params.id });
