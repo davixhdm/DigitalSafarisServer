@@ -1,0 +1,46 @@
+import { Router } from "express";
+import authRoutes from "./authRoutes.js";
+import dashboardRoutes from "./dashboardRoutes.js";
+import partnerRoutes from "./partnerRoutes.js";
+import customerRoutes from "./customerRoutes.js";
+import operationRoutes from "./operationRoutes.js";
+import paymentRoutes from "./paymentRoutes.js";
+import walletRoutes from "./walletRoutes.js";
+import contactRoutes from "./contactRoutes.js";
+import paymentMethodRoutes from "./paymentMethodRoutes.js";
+import commissionRoutes from "./commissionRoutes.js";
+import payoutRoutes from "./payoutRoutes.js";
+import reportRoutes from "./reportRoutes.js";
+import disputeRoutes from "./disputeRoutes.js";
+import backupRoutes from "./backupRoutes.js";
+import legalRoutes from "./legalRoutes.js";
+import brandingRoutes from "./brandingRoutes.js";
+import systemSettingRoutes from "./systemSettingRoutes.js";
+import adminUserRoutes from "./adminUserRoutes.js";
+import healthRoutes from "./healthRoutes.js";
+import locationRoutes from "./locationRoutes.js";
+
+const router = Router();
+
+router.use("/auth", authRoutes);
+router.use("/dashboard", dashboardRoutes);
+router.use("/partners", partnerRoutes);
+router.use("/customers", customerRoutes);
+router.use("/operations", operationRoutes);
+router.use("/payments", paymentRoutes);
+router.use("/wallets", walletRoutes);
+router.use("/contacts", contactRoutes);
+router.use("/payment-methods", paymentMethodRoutes);
+router.use("/commissions", commissionRoutes);
+router.use("/payouts", payoutRoutes);
+router.use("/reports", reportRoutes);
+router.use("/disputes", disputeRoutes);
+router.use("/backups", backupRoutes);
+router.use("/legal", legalRoutes);
+router.use("/branding", brandingRoutes);
+router.use("/settings", systemSettingRoutes);
+router.use("/admins", adminUserRoutes);
+router.use("/health", healthRoutes);
+router.use("/locations", locationRoutes);
+
+export default router;

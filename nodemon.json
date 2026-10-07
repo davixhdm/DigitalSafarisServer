@@ -1,0 +1,10 @@
+{
+  "watch": ["config", "controllers", "middleware", "models", "routes", "schedulers", "scripts", "services", "templates", "utils"],
+  "ext": "js,json",
+  "ignore": ["node_modules", "backups", "uploads", "*.test.js"],
+  "delay": 500,
+  "verbose": true,
+  "env": {
+    "NODE_ENV": "development"
+  }
+}

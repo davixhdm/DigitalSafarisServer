@@ -1,0 +1,155 @@
+# ─────────────────────────────────────────
+# DEPENDENCIES
+# ─────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+.yarn/
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+jspm_packages/
+
+# ─────────────────────────────────────────
+# ENVIRONMENT
+# ─────────────────────────────────────────
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+*.env
+!.env.example
+
+# ─────────────────────────────────────────
+# BUILD OUTPUT
+# ─────────────────────────────────────────
+dist/
+build/
+out/
+.next/
+.nuxt/
+.cache/
+.parcel-cache/
+.vite/
+.temp/
+.tmp/
+
+# ─────────────────────────────────────────
+# LOGS
+# ─────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.npm/
+.yarn-integrity
+
+# ─────────────────────────────────────────
+# BACKUPS
+# ─────────────────────────────────────────
+backups/
+*.dump
+*.backup
+*.sql
+*.gz
+
+# ─────────────────────────────────────────
+# TESTING
+# ─────────────────────────────────────────
+coverage/
+.nyc_output/
+*.lcov
+lib-cov/
+.nyc_output/
+
+# ─────────────────────────────────────────
+# EDITOR / IDE
+# ─────────────────────────────────────────
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+.history/
+
+# ─────────────────────────────────────────
+# OS FILES
+# ─────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ─────────────────────────────────────────
+# CACHE
+# ─────────────────────────────────────────
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+.node_repl_history
+.pnpm-store/
+
+# ─────────────────────────────────────────
+# TYPESCRIPT
+# ─────────────────────────────────────────
+*.tsbuildinfo
+next-env.d.ts
+
+# ─────────────────────────────────────────
+# VITE
+# ─────────────────────────────────────────
+.vite/
+dist-ssr/
+*.local
+
+# ─────────────────────────────────────────
+# MISC
+# ─────────────────────────────────────────
+.eslintcache
+.node_repl_history
+*.tgz
+*.zip
+*.rar
+*.7z
+
+# ─────────────────────────────────────────
+# FIREBASE
+# ─────────────────────────────────────────
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# ─────────────────────────────────────────
+# MONGODB / DB DUMPS
+# ─────────────────────────────────────────
+dump/
+mongodump-*/
+*.bson
+*.metadata.json
+
+# ─────────────────────────────────────────
+# SECRETS / KEYS
+# ─────────────────────────────────────────
+*.pem
+*.key
+*.crt
+*.p12
+serviceAccountKey.json
+*-service-account.json
