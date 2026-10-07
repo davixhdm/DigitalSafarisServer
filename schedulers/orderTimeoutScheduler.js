@@ -19,10 +19,11 @@ const runOrderTimeoutJob = async () => {
     order.cancellationReason = "Auto-cancelled: restaurant did not respond in time";
     await order.save();
 
-    socketService.emitToCustomer(order.customer.toString(), "order:cancelled", {
-      reference: order.reference,
-      reason: order.cancellationReason,
-    });
+    socketService.emitToCustomer(
+      order.customer.toString(),
+      "order:cancelled",
+      { reference: order.reference, reason: order.cancellationReason }
+    );
   }
 
   logger.info(`Order timeout job completed. ${stuck.length} cancelled.`);

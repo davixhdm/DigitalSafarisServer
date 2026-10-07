@@ -44,17 +44,57 @@ const list = asyncHandler(async (req, res) => {
   ]);
 
   res.status(200).json(
-    new ApiResponse(200, { items, total, page: Number(page), limit: Number(limit) })
+    new ApiResponse(200, {
+      items,
+      total,
+      page: Number(page),
+      limit: Number(limit),
+      totalPages: Math.max(1, Math.ceil(total / Number(limit))),
+    })
   );
 });
 
 const details = asyncHandler(async (req, res) => {
-  const customer = await Customer.findById(req.params.id).lean();
+  const id = req.params.id;
+
+  const customer = await Customer.findById(id).lean();
   if (!customer) throw new ApiError(404, "Customer not found");
 
-  const wallet = await CustomerWallet.findOne({ customer: customer._id }).lean();
+  const wallet = await CustomerWallet.findOne({ customer: id }).lean();
 
-  res.status(200).json(new ApiResponse(200, { customer, wallet }));
+  const [bookings, orders, trips, spentAgg] = await Promise.all([
+    Booking.countDocuments({ customer: id }),
+    FoodOrder.countDocuments({ customer: id }),
+    Trip.countDocuments({ customer: id }),
+    CustomerPayment.aggregate([
+      {
+        $match: {
+          customer: customer._id,
+          status: "success",
+          purpose: { $in: ["booking", "food_order", "transport"] },
+        },
+      },
+      { $group: { _id: null, sum: { $sum: "$amount" } } },
+    ]),
+  ]);
+
+  const safe = { ...customer };
+  delete safe.password;
+  delete safe.refreshToken;
+
+  res.status(200).json(
+    new ApiResponse(200, {
+      customer: {
+        ...safe,
+        walletBalance: wallet?.balance ?? 0,
+        totalBookings: bookings,
+        totalOrders: orders,
+        totalTrips: trips,
+        totalSpent: spentAgg[0]?.sum ?? 0,
+      },
+      wallet,
+    })
+  );
 });
 
 const suspend = asyncHandler(async (req, res) => {

@@ -19,9 +19,11 @@ const runBroadcastExpiryJob = async () => {
       req.targetedRestaurants.map((id) => id.toString())
     );
 
-    socketService.emitToCustomer(req.customer.toString(), "broadcast:expired", {
-      reference: req.reference,
-    });
+    socketService.emitToCustomer(
+      req.customer.toString(),
+      "broadcast:expired",
+      { reference: req.reference }
+    );
   }
 
   logger.info(`Broadcast expiry job completed. ${expired.length} expired.`);

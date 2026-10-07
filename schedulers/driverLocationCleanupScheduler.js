@@ -11,7 +11,9 @@ const runDriverLocationCleanupJob = async () => {
     { $set: { isOnline: false, isAvailable: false } }
   );
 
-  logger.info(`Driver location cleanup completed. ${result.modifiedCount} marked offline.`);
+  logger.info(
+    `Driver location cleanup completed. ${result.modifiedCount} marked offline.`
+  );
 };
 
 export { runDriverLocationCleanupJob };
