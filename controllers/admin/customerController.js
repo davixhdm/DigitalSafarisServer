@@ -38,10 +38,31 @@ const list = asyncHandler(async (req, res) => {
   }
 
   const skip = (Number(page) - 1) * Number(limit);
-  const [items, total] = await Promise.all([
-    Customer.find(filter).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
+  const [customers, total] = await Promise.all([
+    Customer.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(Number(limit))
+      .lean(),
     Customer.countDocuments(filter),
   ]);
+
+  const ids = customers.map((c) => c._id);
+  const wallets = await CustomerWallet.find({ customer: { $in: ids } }).lean();
+  const walletMap = wallets.reduce((acc, w) => {
+    acc[String(w.customer)] = w;
+    return acc;
+  }, {});
+
+  const items = customers.map((c) => {
+    const safe = { ...c };
+    delete safe.password;
+    delete safe.refreshToken;
+    return {
+      ...safe,
+      walletBalance: walletMap[String(c._id)]?.balance ?? 0,
+    };
+  });
 
   res.status(200).json(
     new ApiResponse(200, {
@@ -92,7 +113,7 @@ const details = asyncHandler(async (req, res) => {
         totalTrips: trips,
         totalSpent: spentAgg[0]?.sum ?? 0,
       },
-      wallet,
+      wallet: wallet || null,
     })
   );
 });
