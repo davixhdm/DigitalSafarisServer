@@ -11,7 +11,12 @@ import authenticateClient from "../../middleware/client/authenticateClient.js";
 
 const router = Router();
 
+router.get("/mpesa/callback", (req, res) => {
+  res.status(200).json({ success: true, message: "M-Pesa callback endpoint" });
+});
+
 router.post("/mpesa/callback", mpesaCallback);
+
 router.post("/stripe/callback", stripeCallback);
 
 router.post("/mpesa/initiate", authenticateClient, initiateMpesa);
