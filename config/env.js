@@ -1,6 +1,12 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+const splitList = (value) =>
+  String(value || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
 export const env = {
   port: process.env.PORT || 5000,
   nodeEnv: process.env.NODE_ENV || "development",
@@ -10,6 +16,8 @@ export const env = {
   adminUrl: process.env.ADMIN_URL,
   partnerUrl: process.env.PARTNER_URL,
   websiteUrl: process.env.WEBSITE_URL,
+
+  corsOrigins: splitList(process.env.CORS_ORIGINS),
 
   mongodbUri: process.env.MONGODB_URI,
 

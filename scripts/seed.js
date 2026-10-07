@@ -8,6 +8,7 @@ import PaymentMethod from "../models/admin/PaymentMethod.js";
 import SystemSetting from "../models/admin/SystemSetting.js";
 import Legal from "../models/admin/Legal.js";
 import Branding from "../models/admin/Branding.js";
+import Location from "../models/admin/Location.js";
 
 const C = {
   reset: "\x1b[0m",
@@ -37,6 +38,13 @@ const heading = (title) => {
 const ok = (msg) => line(`${C.green}✔${C.reset} ${msg}`);
 const warn = (msg) => line(`${C.yellow}⚠${C.reset} ${msg}`);
 const err = (msg) => line(`${C.red}✖${C.reset} ${msg}`);
+
+const slugify = (str) =>
+  String(str)
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 
 const seedRoles = async () => {
   const roles = [
@@ -104,21 +112,21 @@ const seedPaymentMethods = async () => {
       name: "mpesa",
       label: "M-Pesa",
       enabled: false,
-      usedFor: { accommodation: true, food: true, transport: true, dineIn: true },
+      usedFor: ["accommodation", "restaurant", "transport", "dinein"],
       config: {},
     },
     {
       name: "stripe",
       label: "Card (Stripe)",
       enabled: false,
-      usedFor: { accommodation: true, food: false, transport: false, dineIn: false },
+      usedFor: ["accommodation"],
       config: {},
     },
     {
       name: "wallet",
       label: "DS Wallet",
       enabled: true,
-      usedFor: { accommodation: true, food: true, transport: true, dineIn: true },
+      usedFor: ["accommodation", "restaurant", "transport", "dinein"],
       config: {},
     },
   ];
@@ -137,64 +145,115 @@ const seedPaymentMethods = async () => {
 
 const seedSettings = async () => {
   const settings = [
-    { key: "general", value: {
-      appName: "Digital Safaris",
-      apiUrl: "http://localhost:5000",
-      clientUrl: "http://localhost:3000",
-      adminUrl: "http://localhost:3001",
-      partnerUrl: "http://localhost:3002",
-      websiteUrl: "http://localhost:3003",
-      timezone: "Africa/Nairobi",
-      currency: "KES",
-      language: "en",
-      supportEmail: "support@digitalsafaris.com",
-      supportPhone: "+254 700 000 000",
-      logoUrl: null,
-    }, group: "general" },
-
-    { key: "commission", value: {
-      food: 10,
-      transport: 10,
-      accommodation: 10,
-    }, group: "commission" },
-
-    { key: "payout", value: {
-      minAmount: 500,
-      schedule: "weekly",
-      day: "friday",
-      time: "17:00",
-    }, group: "payout" },
-
-    { key: "broadcast", value: {
-      radiusKm: 5,
-      expirySeconds: 60,
-    }, group: "broadcast" },
-
-    { key: "payment", value: {
-      mpesa: { enabled: false },
-      stripe: { enabled: false },
-      wallet: { enabled: true },
-    }, group: "payment" },
-
-    { key: "backup", value: {
-      enabled: true,
-      frequency: "daily",
-      time: "02:00",
-      retentionDays: 30,
-      notifyEmail: true,
-    }, group: "backup" },
-
-    { key: "branding", value: {
-      logo: null,
-      logoUrl: null,
-      favicon: null,
-      emailHeaderLogo: null,
-      primaryColor: "#1A1F2E",
-      secondaryColor: "#C9A063",
-      fontFamily: "Montserrat",
-      metaTitle: "Digital Safaris",
-      metaDescription: "Your concierge, reimagined.",
-    }, group: "branding" },
+    {
+      key: "general",
+      value: {
+        appName: "Digital Safaris",
+        tagline: "Your journey. One platform.",
+        apiUrl: "http://localhost:5000",
+        clientUrl: "http://localhost:3000",
+        adminUrl: "http://localhost:3001",
+        partnerUrl: "http://localhost:3002",
+        websiteUrl: "http://localhost:3003",
+        timezone: "Africa/Nairobi",
+        currency: "KES",
+        language: "en",
+        supportEmail: "support@digitalsafaris.com",
+        supportPhone: "+254 700 000 000",
+        whatsappNumber: "+254 700 000 000",
+        logoUrl: null,
+      },
+      group: "general",
+    },
+    {
+      key: "social",
+      value: {
+        instagram: null,
+        tiktok: null,
+        facebook: null,
+        linkedin: null,
+        x: null,
+        youtube: null,
+      },
+      group: "general",
+    },
+    {
+      key: "ai",
+      value: {
+        enabled: true,
+        name: "DigitalSafaris Concierge",
+        greeting:
+          "Jambo! Welcome to DigitalSafaris. How can I help you plan your journey or partner your business today?",
+        color: "#c47c2b",
+      },
+      group: "general",
+    },
+    {
+      key: "commission",
+      value: {
+        defaultRate: 10,
+        byService: {
+          accommodation: 10,
+          food: 10,
+          transport: 10,
+          dinein: 10,
+        },
+      },
+      group: "commission",
+    },
+    {
+      key: "payout",
+      value: {
+        minAmount: 500,
+        schedule: "weekly",
+        day: "friday",
+        time: "17:00",
+      },
+      group: "payout",
+    },
+    {
+      key: "broadcast",
+      value: {
+        radiusKm: 5,
+        expirySeconds: 60,
+      },
+      group: "broadcast",
+    },
+    {
+      key: "payment",
+      value: {
+        mpesa: { enabled: false },
+        stripe: { enabled: false },
+        wallet: { enabled: true },
+      },
+      group: "payment",
+    },
+    {
+      key: "backup",
+      value: {
+        enabled: true,
+        frequency: "daily",
+        time: "02:00",
+        retentionDays: 30,
+        notifyEmail: true,
+      },
+      group: "backup",
+    },
+    {
+      key: "branding",
+      value: {
+        logo: null,
+        logoUrl: null,
+        favicon: "/favicon.svg",
+        emailHeaderLogo: null,
+        primaryColor: "#1A1F2E",
+        secondaryColor: "#C9A063",
+        fontFamily: "Montserrat",
+        metaTitle: "Digital Safaris",
+        metaDescription: "Your concierge, reimagined.",
+      },
+      group: "branding",
+    },
   ];
 
   let count = 0;
@@ -284,6 +343,10 @@ const seedBranding = async () => {
     return;
   }
   await Branding.create({
+    logo: "/logo.svg",
+    logoUrl: null,
+    favicon: "/favicon.svg",
+    emailHeaderLogo: null,
     primaryColor: "#1A1F2E",
     secondaryColor: "#C9A063",
     fontFamily: "Montserrat",
@@ -291,6 +354,70 @@ const seedBranding = async () => {
     metaDescription: "Your concierge, reimagined.",
   });
   ok("Branding inserted");
+};
+
+const seedLocations = async () => {
+  const towns = [
+    {
+      name: "Nairobi",
+      type: "city",
+      county: "Nairobi",
+      countryCode: "KE",
+      latitude: -1.286389,
+      longitude: 36.817223,
+      radiusKm: 15,
+      isDefault: true,
+    },
+    {
+      name: "Nakuru",
+      type: "city",
+      county: "Nakuru",
+      countryCode: "KE",
+      latitude: -0.303099,
+      longitude: 36.080025,
+      radiusKm: 12,
+      isDefault: false,
+    },
+    {
+      name: "Naivasha",
+      type: "town",
+      county: "Nakuru",
+      countryCode: "KE",
+      latitude: -0.716667,
+      longitude: 36.433333,
+      radiusKm: 10,
+      isDefault: false,
+    },
+    {
+      name: "Mombasa",
+      type: "city",
+      county: "Mombasa",
+      countryCode: "KE",
+      latitude: -4.043477,
+      longitude: 39.668206,
+      radiusKm: 15,
+      isDefault: false,
+    },
+  ];
+
+  let count = 0;
+  for (const t of towns) {
+    await Location.updateOne(
+      { slug: slugify(t.name), type: t.type },
+      {
+        $setOnInsert: {
+          ...t,
+          slug: slugify(t.name),
+          timezone: "Africa/Nairobi",
+          currency: "KES",
+          isOperational: true,
+        },
+      },
+      { upsert: true }
+    );
+    count++;
+  }
+  ok(`Locations: ${count} upserted`);
 };
 
 const menu = async () => {
@@ -306,6 +433,7 @@ const menu = async () => {
   line(`  ${C.bold}4${C.reset}.  Seed system settings`);
   line(`  ${C.bold}5${C.reset}.  Seed legal docs`);
   line(`  ${C.bold}6${C.reset}.  Seed branding`);
+  line(`  ${C.bold}7${C.reset}.  Seed locations`);
   line();
   line(`  ${C.dim}0.  Exit${C.reset}`);
   line();
@@ -337,6 +465,7 @@ const main = async () => {
         await seedSettings();
         await seedLegals();
         await seedBranding();
+        await seedLocations();
         line();
         ok("All seeds complete");
       } else if (choice === "2") {
@@ -349,6 +478,8 @@ const main = async () => {
         await seedLegals();
       } else if (choice === "6") {
         await seedBranding();
+      } else if (choice === "7") {
+        await seedLocations();
       } else if (choice === "0") {
         break;
       } else {

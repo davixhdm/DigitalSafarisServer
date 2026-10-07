@@ -4,10 +4,14 @@ import logger from "../utils/logger.js";
 
 let io = null;
 
+const allowed = env.corsOrigins.length
+  ? env.corsOrigins
+  : [env.clientUrl, env.adminUrl, env.partnerUrl, env.websiteUrl].filter(Boolean);
+
 const initSocket = (httpServer) => {
   io = new Server(httpServer, {
     cors: {
-      origin: [env.clientUrl, env.adminUrl, env.partnerUrl, env.websiteUrl],
+      origin: allowed,
       methods: ["GET", "POST"],
       credentials: true,
     },
