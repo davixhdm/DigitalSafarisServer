@@ -1,5 +1,6 @@
 import Customer from "../../models/customer/Customer.js";
 import CustomerPayment from "../../models/customer/CustomerPayment.js";
+import CustomerWallet from "../../models/customer/CustomerWallet.js";
 import Branding from "../../models/admin/Branding.js";
 import SystemSetting from "../../models/admin/SystemSetting.js";
 import * as mpesaService from "../../services/mpesaService.js";
@@ -16,6 +17,21 @@ const getContext = async () => {
   const branding = (await Branding.findOne().lean()) || {};
   const general = await SystemSetting.findOne({ key: "general" }).lean();
   return { branding, settings: general?.value || {} };
+};
+
+const creditWalletIfTopup = async (payment) => {
+  if (payment.purpose !== "topup") return;
+  if (payment.meta?.walletCredited === true) return;
+
+  const wallet = await CustomerWallet.findOne({ customer: payment.customer });
+  if (!wallet) return;
+
+  wallet.balance += payment.amount;
+  wallet.totalCredited += payment.amount;
+  await wallet.save();
+
+  payment.meta = { ...(payment.meta || {}), walletCredited: true };
+  await payment.save();
 };
 
 const initiateMpesa = asyncHandler(async (req, res) => {
@@ -44,51 +60,103 @@ const initiateMpesa = asyncHandler(async (req, res) => {
     payment.status = "failed";
     payment.failureReason = result.error?.errorMessage || "STK failed";
     await payment.save();
-    throw new ApiError(400, result.error?.errorMessage || "Failed to initiate payment");
+    throw new ApiError(
+      400,
+      result.error?.errorMessage || "Failed to initiate payment"
+    );
   }
 
-  payment.meta = { ...payment.meta, checkoutRequestId: result.checkoutRequestId, merchantRequestId: result.merchantRequestId };
+  payment.meta = {
+    ...payment.meta,
+    checkoutRequestId: result.checkoutRequestId,
+    merchantRequestId: result.merchantRequestId,
+  };
   await payment.save();
 
-  res.status(200).json(new ApiResponse(200, { reference, checkoutRequestId: result.checkoutRequestId }, result.customerMessage));
+  res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        { reference, checkoutRequestId: result.checkoutRequestId },
+        result.customerMessage
+      )
+    );
 });
 
 const mpesaCallback = asyncHandler(async (req, res) => {
   const parsed = mpesaService.parseCallback(req.body);
 
-  if (!parsed.checkoutRequestId) return res.status(200).json({ success: true });
+  if (!parsed.checkoutRequestId) {
+    return res.status(200).json({ success: true });
+  }
 
   if (mpesaService.isDuplicateCallback(parsed.checkoutRequestId)) {
     return res.status(200).json({ success: true });
   }
 
-  const payment = await CustomerPayment.findOne({ "meta.checkoutRequestId": parsed.checkoutRequestId });
+  const payment = await CustomerPayment.findOne({
+    "meta.checkoutRequestId": parsed.checkoutRequestId,
+  });
+
   if (!payment) return res.status(200).json({ success: true });
 
   if (parsed.success) {
-    payment.status = "success";
-    payment.transactionId = parsed.mpesaReceiptNumber;
-    payment.receiptNumber = parsed.mpesaReceiptNumber;
-    payment.meta = { ...payment.meta, transactionDate: parsed.transactionDate, phoneNumber: parsed.phoneNumber };
-    await payment.save();
+    const wasAlreadySuccess = payment.status === "success";
 
-    const customer = await Customer.findById(payment.customer);
-    if (customer) {
-      const { branding, settings } = await getContext();
-      await emailService.paymentReceived(customer, {
-        payment: { amount: payment.amount, reference: payment.reference, method: "M-Pesa", currency: "KES" },
-        branding,
-        settings,
-      });
-      await smsService.paymentReceived(customer, {
-        amount: `KES ${payment.amount}`,
-        reference: payment.reference,
-      });
+    if (!wasAlreadySuccess) {
+      payment.status = "success";
+      payment.transactionId = parsed.mpesaReceiptNumber;
+      payment.receiptNumber = parsed.mpesaReceiptNumber;
+      payment.meta = {
+        ...payment.meta,
+        transactionDate: parsed.transactionDate,
+        phoneNumber: parsed.phoneNumber,
+      };
+      await payment.save();
+
+      await creditWalletIfTopup(payment);
+
+      const customer = await Customer.findById(payment.customer);
+      if (customer) {
+        const { branding, settings } = await getContext();
+        try {
+          await emailService.paymentReceived(customer, {
+            payment: {
+              amount: payment.amount,
+              reference: payment.reference,
+              method: "M-Pesa",
+              currency: payment.currency || "KES",
+            },
+            branding,
+            settings,
+          });
+        } catch (err) {
+          logger.error("Payment received email failed", {
+            error: err.message,
+          });
+        }
+
+        try {
+          await smsService.paymentReceived(customer, {
+            amount: `KES ${payment.amount}`,
+            reference: payment.reference,
+          });
+        } catch (err) {
+          logger.error("Payment received SMS failed", {
+            error: err.message,
+          });
+        }
+      }
+    } else {
+      await creditWalletIfTopup(payment);
     }
   } else {
-    payment.status = "failed";
-    payment.failureReason = parsed.resultDesc || "M-Pesa failed";
-    await payment.save();
+    if (payment.status !== "success") {
+      payment.status = "failed";
+      payment.failureReason = parsed.resultDesc || "M-Pesa failed";
+      await payment.save();
+    }
   }
 
   res.status(200).json({ success: true });
@@ -112,7 +180,11 @@ const initiateStripe = asyncHandler(async (req, res) => {
   const result = await stripeService.createPaymentIntent({
     amount,
     currency: currency || "usd",
-    metadata: { reference, customerId: req.customer._id.toString(), purpose },
+    metadata: {
+      reference,
+      customerId: req.customer._id.toString(),
+      purpose,
+    },
     customerEmail: req.customer.email,
   });
 
@@ -126,7 +198,15 @@ const initiateStripe = asyncHandler(async (req, res) => {
   payment.transactionId = result.id;
   await payment.save();
 
-  res.status(200).json(new ApiResponse(200, { reference, clientSecret: result.clientSecret }, "Payment intent created"));
+  res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        { reference, clientSecret: result.clientSecret },
+        "Payment intent created"
+      )
+    );
 });
 
 const stripeCallback = asyncHandler(async (req, res) => {
@@ -134,7 +214,10 @@ const stripeCallback = asyncHandler(async (req, res) => {
   let event;
 
   try {
-    event = stripeService.constructWebhookEvent(req.rawBody || req.body, signature);
+    event = stripeService.constructWebhookEvent(
+      req.rawBody || req.body,
+      signature
+    );
   } catch (err) {
     logger.error("Stripe webhook signature failed", { error: err.message });
     return res.status(400).json({ received: false });
@@ -153,11 +236,20 @@ const stripeCallback = asyncHandler(async (req, res) => {
         const customer = await Customer.findById(payment.customer);
         if (customer) {
           const { branding, settings } = await getContext();
-          await emailService.paymentReceived(customer, {
-            payment: { amount: payment.amount, reference: payment.reference, method: "Card", currency: payment.currency.toUpperCase() },
-            branding,
-            settings,
-          });
+          try {
+            await emailService.paymentReceived(customer, {
+              payment: {
+                amount: payment.amount,
+                reference: payment.reference,
+                method: "Card",
+                currency: (payment.currency || "usd").toUpperCase(),
+              },
+              branding,
+              settings,
+            });
+          } catch {
+            /* silent */
+          }
         }
       }
     }
@@ -168,20 +260,29 @@ const stripeCallback = asyncHandler(async (req, res) => {
     const reference = intent.metadata?.reference;
     if (reference) {
       const payment = await CustomerPayment.findOne({ reference });
-      if (payment) {
+      if (payment && payment.status !== "success") {
         payment.status = "failed";
-        payment.failureReason = intent.last_payment_error?.message || "Card payment failed";
+        payment.failureReason =
+          intent.last_payment_error?.message || "Card payment failed";
         await payment.save();
 
         const customer = await Customer.findById(payment.customer);
         if (customer) {
           const { branding, settings } = await getContext();
-          await emailService.paymentFailed(customer, {
-            payment: { amount: payment.amount, reference: payment.reference, currency: payment.currency.toUpperCase() },
-            reason: payment.failureReason,
-            branding,
-            settings,
-          });
+          try {
+            await emailService.paymentFailed(customer, {
+              payment: {
+                amount: payment.amount,
+                reference: payment.reference,
+                currency: (payment.currency || "usd").toUpperCase(),
+              },
+              reason: payment.failureReason,
+              branding,
+              settings,
+            });
+          } catch {
+            /* silent */
+          }
         }
       }
     }
@@ -193,7 +294,7 @@ const stripeCallback = asyncHandler(async (req, res) => {
 const payWithWallet = asyncHandler(async (req, res) => {
   const { amount, purpose, relatedId } = req.body;
 
-  const wallet = await (await import("../../models/customer/CustomerWallet.js")).default.findOne({ customer: req.customer._id });
+  const wallet = await CustomerWallet.findOne({ customer: req.customer._id });
   if (!wallet) throw new ApiError(404, "Wallet not found");
   if (wallet.status === "frozen") throw new ApiError(403, "Wallet frozen");
   if (wallet.balance < amount) throw new ApiError(400, "Insufficient balance");
@@ -214,19 +315,37 @@ const payWithWallet = asyncHandler(async (req, res) => {
   });
 
   const { branding, settings } = await getContext();
-  await emailService.paymentReceived(req.customer, {
-    payment: { amount, reference, method: "Wallet", currency: "KES" },
-    branding,
-    settings,
-  });
+  try {
+    await emailService.paymentReceived(req.customer, {
+      payment: { amount, reference, method: "Wallet", currency: "KES" },
+      branding,
+      settings,
+    });
+  } catch {
+    /* silent */
+  }
 
-  res.status(200).json(new ApiResponse(200, { reference, balance: wallet.balance }, "Paid with wallet"));
+  res
+    .status(200)
+    .json(
+      new ApiResponse(200, { reference, balance: wallet.balance }, "Paid with wallet")
+    );
 });
 
 const status = asyncHandler(async (req, res) => {
-  const payment = await CustomerPayment.findOne({ reference: req.params.reference, customer: req.customer._id }).lean();
+  const payment = await CustomerPayment.findOne({
+    reference: req.params.reference,
+    customer: req.customer._id,
+  }).lean();
   if (!payment) throw new ApiError(404, "Payment not found");
   res.status(200).json(new ApiResponse(200, payment));
 });
 
-export { initiateMpesa, mpesaCallback, initiateStripe, stripeCallback, payWithWallet, status };
+export {
+  initiateMpesa,
+  mpesaCallback,
+  initiateStripe,
+  stripeCallback,
+  payWithWallet,
+  status,
+};

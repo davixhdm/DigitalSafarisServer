@@ -3,11 +3,12 @@ import CustomerPayment from "../../models/customer/CustomerPayment.js";
 import Branding from "../../models/admin/Branding.js";
 import SystemSetting from "../../models/admin/SystemSetting.js";
 import * as mpesaService from "../../services/mpesaService.js";
+import * as emailService from "../../services/emailService.js";
 import { generateRef } from "../../utils/helpers.js";
 import ApiError from "../../utils/apiError.js";
 import ApiResponse from "../../utils/ApiResponse.js";
 import asyncHandler from "../../utils/asyncHandler.js";
-import * as emailService from "../../services/emailService.js";
+import logger from "../../utils/logger.js";
 
 const getContext = async () => {
   const branding = (await Branding.findOne().lean()) || {};
@@ -48,7 +49,10 @@ const topUp = asyncHandler(async (req, res) => {
     payment.status = "failed";
     payment.failureReason = result.error?.errorMessage || "STK failed";
     await payment.save();
-    throw new ApiError(400, result.error?.errorMessage || "Failed to initiate top up");
+    throw new ApiError(
+      400,
+      result.error?.errorMessage || "Failed to initiate top up"
+    );
   }
 
   payment.meta = {
@@ -58,40 +62,77 @@ const topUp = asyncHandler(async (req, res) => {
   };
   await payment.save();
 
-  res.status(200).json(
-    new ApiResponse(200, { reference, checkoutRequestId: result.checkoutRequestId }, result.customerMessage)
-  );
+  res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        { reference, checkoutRequestId: result.checkoutRequestId },
+        result.customerMessage
+      )
+    );
 });
 
 const confirmTopUp = asyncHandler(async (req, res) => {
   const { reference } = req.body;
 
-  const payment = await CustomerPayment.findOne({ reference, customer: req.customer._id });
-  if (!payment) throw new ApiError(404, "Payment not found");
-  if (payment.status !== "pending") throw new ApiError(400, "Payment already processed");
-
-  const statusResult = await mpesaService.querySTKStatus(payment.meta.checkoutRequestId);
-  if (!statusResult.success || statusResult.resultCode !== "0") {
-    throw new ApiError(400, statusResult.resultDesc || "Payment not completed");
-  }
-
-  payment.status = "success";
-  await payment.save();
-
-  const wallet = await CustomerWallet.findOne({ customer: req.customer._id });
-  wallet.balance += payment.amount;
-  wallet.totalCredited += payment.amount;
-  await wallet.save();
-
-  const { branding, settings } = await getContext();
-  await emailService.walletToppedUp(req.customer, {
-    amount: `KES ${payment.amount}`,
-    balance: `KES ${wallet.balance}`,
-    branding,
-    settings,
+  const payment = await CustomerPayment.findOne({
+    reference,
+    customer: req.customer._id,
   });
 
-  res.status(200).json(new ApiResponse(200, { balance: wallet.balance }, "Wallet topped up"));
+  if (!payment) throw new ApiError(404, "Payment not found");
+
+  const wallet = await CustomerWallet.findOne({ customer: req.customer._id });
+  if (!wallet) throw new ApiError(404, "Wallet not found");
+
+  const alreadyCredited = payment.meta?.walletCredited === true;
+
+  if (!alreadyCredited) {
+    if (payment.status === "pending") {
+      const statusResult = await mpesaService.querySTKStatus(
+        payment.meta?.checkoutRequestId
+      );
+
+      if (!statusResult.success || statusResult.resultCode !== "0") {
+        throw new ApiError(
+          400,
+          statusResult.resultDesc || "Payment not completed"
+        );
+      }
+
+      payment.status = "success";
+    }
+
+    if (payment.status !== "success") {
+      throw new ApiError(400, "Payment not completed");
+    }
+
+    wallet.balance += payment.amount;
+    wallet.totalCredited += payment.amount;
+    await wallet.save();
+
+    payment.meta = { ...(payment.meta || {}), walletCredited: true };
+    await payment.save();
+
+    const { branding, settings } = await getContext();
+    try {
+      await emailService.walletToppedUp(req.customer, {
+        amount: `KES ${payment.amount}`,
+        balance: `KES ${wallet.balance}`,
+        branding,
+        settings,
+      });
+    } catch (err) {
+      logger.error("Wallet topped up email failed", { error: err.message });
+    }
+  }
+
+  res
+    .status(200)
+    .json(
+      new ApiResponse(200, { balance: wallet.balance }, "Wallet topped up")
+    );
 });
 
 export { get, topUp, confirmTopUp };
