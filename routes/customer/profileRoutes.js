@@ -20,6 +20,11 @@ router.get("/", authenticateClient, get);
 router.patch("/", authenticateClient, update);
 router.patch("/details", authenticateClient, updateProfile);
 router.patch("/preferences", authenticateClient, updatePreferences);
-router.post("/avatar", authenticateClient, uploader.single("avatar"), uploadAvatar);
+router.patch(
+  "/avatar",
+  authenticateClient,
+  uploader.single("avatar"),
+  uploadAvatar
+);
 
 export default router;

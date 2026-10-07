@@ -17,23 +17,34 @@ const get = asyncHandler(async (req, res) => {
   delete safe.password;
   delete safe.refreshToken;
 
-  res.status(200).json(new ApiResponse(200, { customer: safe, profile, preference }));
+  res
+    .status(200)
+    .json(new ApiResponse(200, { customer: safe, profile, preference }));
 });
 
 const update = asyncHandler(async (req, res) => {
-  const {
-    firstName, lastName, dateOfBirth, gender, nationality, town, location,
-  } = req.body;
+  const allowed = [
+    "firstName",
+    "lastName",
+    "dateOfBirth",
+    "gender",
+    "nationality",
+    "town",
+    "location",
+  ];
 
-  const customer = await Customer.findById(req.customer._id);
-  if (firstName !== undefined) customer.firstName = firstName;
-  if (lastName !== undefined) customer.lastName = lastName;
-  if (dateOfBirth !== undefined) customer.dateOfBirth = dateOfBirth;
-  if (gender !== undefined) customer.gender = gender;
-  if (nationality !== undefined) customer.nationality = nationality;
-  if (town !== undefined) customer.town = town;
-  if (location !== undefined) customer.location = location;
-  await customer.save();
+  const updates = {};
+  for (const key of allowed) {
+    if (req.body[key] !== undefined) updates[key] = req.body[key];
+  }
+
+  const customer = await Customer.findByIdAndUpdate(
+    req.customer._id,
+    { $set: updates },
+    { new: true }
+  );
+
+  if (!customer) throw new ApiError(404, "Customer not found");
 
   const safe = customer.toObject();
   delete safe.password;
@@ -43,34 +54,95 @@ const update = asyncHandler(async (req, res) => {
 });
 
 const updateProfile = asyncHandler(async (req, res) => {
+  const allowed = [
+    "bio",
+    "language",
+    "currency",
+    "timezone",
+    "town",
+    "location",
+    "travelInterests",
+    "dietaryPreferences",
+    "accessibilityNeeds",
+    "emergencyContact",
+    "marketingOptIn",
+    "pushOptIn",
+  ];
+
+  const updates = {};
+  for (const key of allowed) {
+    if (req.body[key] !== undefined) updates[key] = req.body[key];
+  }
+
   const profile = await CustomerProfile.findOneAndUpdate(
     { customer: req.customer._id },
-    { $set: req.body },
+    { $set: updates, $setOnInsert: { customer: req.customer._id } },
     { upsert: true, new: true }
   );
+
   res.status(200).json(new ApiResponse(200, profile, "Profile details updated"));
 });
 
 const updatePreferences = asyncHandler(async (req, res) => {
+  const allowed = ["notifications", "categories", "theme", "language", "currency", "favorites"];
+
+  const updates = {};
+  for (const key of allowed) {
+    if (req.body[key] !== undefined) updates[key] = req.body[key];
+  }
+
   const preference = await CustomerPreference.findOneAndUpdate(
     { customer: req.customer._id },
-    { $set: req.body },
+    { $set: updates, $setOnInsert: { customer: req.customer._id } },
     { upsert: true, new: true }
   );
-  res.status(200).json(new ApiResponse(200, preference, "Preferences updated"));
+
+  res
+    .status(200)
+    .json(new ApiResponse(200, preference, "Preferences updated"));
 });
 
 const uploadAvatar = asyncHandler(async (req, res) => {
-  if (!req.file) throw new ApiError(400, "File required");
-  const { url, publicId } = await uploadFile(req.file.buffer, req.file.originalname, "avatars");
+  if (!req.file) {
+    if (req.body && req.body.avatar === null) {
+      await Customer.updateOne(
+        { _id: req.customer._id },
+        { $set: { avatar: null } }
+      );
+      return res
+        .status(200)
+        .json(new ApiResponse(200, { avatar: null }, "Avatar removed"));
+    }
+    throw new ApiError(400, "File required");
+  }
+
+  if (!/^image\//.test(req.file.mimetype)) {
+    throw new ApiError(400, "Only image files are allowed");
+  }
+
+  const { url, publicId } = await uploadFile(
+    req.file.buffer,
+    req.file.originalname,
+    "avatars"
+  );
 
   const customer = await Customer.findByIdAndUpdate(
     req.customer._id,
-    { avatar: url },
+    { $set: { avatar: url } },
     { new: true }
   );
 
-  res.status(200).json(new ApiResponse(200, { avatar: url, publicId }, "Avatar updated"));
+  if (!customer) throw new ApiError(404, "Customer not found");
+
+  res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        { avatar: customer.avatar, publicId },
+        "Avatar updated"
+      )
+    );
 });
 
 export { get, update, updateProfile, updatePreferences, uploadAvatar };

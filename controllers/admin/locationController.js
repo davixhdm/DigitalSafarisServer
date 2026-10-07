@@ -1,8 +1,17 @@
 import Location from "../../models/admin/Location.js";
 import { slugify } from "../../utils/helpers.js";
+import * as cacheService from "../../services/cacheService.js";
 import ApiError from "../../utils/apiError.js";
 import ApiResponse from "../../utils/ApiResponse.js";
 import asyncHandler from "../../utils/asyncHandler.js";
+
+const flushAiContext = async () => {
+  try {
+    await cacheService.deleteCachePattern("ai:context:*");
+  } catch {
+    /* silent */
+  }
+};
 
 const list = asyncHandler(async (req, res) => {
   const { type, search, isOperational, parent } = req.query;
@@ -76,6 +85,8 @@ const create = asyncHandler(async (req, res) => {
     updatedBy: req.admin._id,
   });
 
+  await flushAiContext();
+
   res.status(201).json(new ApiResponse(201, location, "Location created"));
 });
 
@@ -111,6 +122,8 @@ const update = asyncHandler(async (req, res) => {
 
   if (!location) throw new ApiError(404, "Location not found");
 
+  await flushAiContext();
+
   res.status(200).json(new ApiResponse(200, location, "Location updated"));
 });
 
@@ -128,6 +141,8 @@ const remove = asyncHandler(async (req, res) => {
 
   await Location.deleteOne({ _id: location._id });
 
+  await flushAiContext();
+
   res.status(200).json(new ApiResponse(200, null, "Location deleted"));
 });
 
@@ -139,13 +154,17 @@ const toggleOperational = asyncHandler(async (req, res) => {
   location.updatedBy = req.admin._id;
   await location.save();
 
+  await flushAiContext();
+
   res
     .status(200)
     .json(
       new ApiResponse(
         200,
         { isOperational: location.isOperational },
-        location.isOperational ? "Marked operational" : "Marked not operational"
+        location.isOperational
+          ? "Marked operational"
+          : "Marked not operational"
       )
     );
 });
