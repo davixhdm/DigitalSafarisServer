@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 const accommodationPartnerSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
+    contactName: { type: String, default: "", trim: true },
     slug: { type: String, required: true, unique: true, trim: true },
     email: {
       type: String,

@@ -24,6 +24,7 @@ const resolveLocation = async (towns) => {
 const register = asyncHandler(async (req, res) => {
   const {
     name,
+    contactName,
     email,
     phone,
     countryCode,
@@ -68,6 +69,7 @@ const register = asyncHandler(async (req, res) => {
 
   const partner = await AccommodationPartner.create({
     name,
+    contactName: contactName || "",
     slug,
     email: String(email).toLowerCase(),
     phone,

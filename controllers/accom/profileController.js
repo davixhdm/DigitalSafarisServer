@@ -23,6 +23,7 @@ const get = asyncHandler(async (req, res) => {
 const update = asyncHandler(async (req, res) => {
   const allowed = [
     "name",
+    "contactName",
     "description",
     "type",
     "phone",

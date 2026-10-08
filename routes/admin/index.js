@@ -19,6 +19,9 @@ import systemSettingRoutes from "./systemSettingRoutes.js";
 import adminUserRoutes from "./adminUserRoutes.js";
 import healthRoutes from "./healthRoutes.js";
 import locationRoutes from "./locationRoutes.js";
+import downloadRoutes from "./downloadRoutes.js";
+
+
 
 const router = Router();
 
@@ -42,5 +45,6 @@ router.use("/settings", systemSettingRoutes);
 router.use("/admins", adminUserRoutes);
 router.use("/health", healthRoutes);
 router.use("/locations", locationRoutes);
+router.use("/downloads", downloadRoutes);
 
 export default router;

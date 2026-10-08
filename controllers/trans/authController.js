@@ -12,7 +12,11 @@ import asyncHandler from "../../utils/asyncHandler.js";
 const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
-  const partner = await TransportPartner.findOne({ email, isDeleted: false })
+  const identifier = String(email || "").trim();
+  const partner = await TransportPartner.findOne({
+    $or: [{ email: identifier.toLowerCase() }, { phone: identifier }],
+    isDeleted: false,
+  })
     .select("+password");
 
   if (!partner) throw new ApiError(401, "Invalid credentials");
