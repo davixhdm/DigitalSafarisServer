@@ -11,6 +11,7 @@ import AccommodationPartner from "../../models/accom/AccommodationPartner.js";
 import AccommodationWallet from "../../models/accom/AccommodationWallet.js";
 import Branding from "../../models/admin/Branding.js";
 import SystemSetting from "../../models/admin/SystemSetting.js";
+import Admin from "../../models/admin/Admin.js";
 import generateOTP from "../../utils/generateOTP.js";
 import comparePassword from "../../utils/comparePassword.js";
 import {
@@ -40,6 +41,54 @@ const buildVerifyUrl = (token, settings) => {
     "http://localhost:3000";
   return `${base.replace(/\/$/, "")}/verify-email?token=${token}`;
 };
+
+const getAdminRecipients = async () => {
+  return Admin.find({ isDeleted: false, status: "active" })
+    .select("firstName lastName email")
+    .lean();
+};
+
+const notifyAdminsOfPartnerApplication = async ({
+  partner,
+  partnerType,
+  branding,
+  settings,
+}) => {
+  const admins = await getAdminRecipients();
+
+  if (!admins.length) {
+    logger.warn("No active admins to notify for partner application", {
+      partnerType,
+      partnerEmail: partner.email,
+    });
+    return;
+  }
+
+  const results = await Promise.allSettled(
+    admins.map((admin) =>
+      emailService.adminNewPartnerApplication(admin, {
+        branding,
+        settings,
+        partnerType,
+        partner,
+      })
+    )
+  );
+
+  results.forEach((r, i) => {
+    if (r.status === "rejected") {
+      logger.error("Admin partner-application email failed", {
+        adminEmail: admins[i].email,
+        partnerType,
+        error: r.reason?.message,
+      });
+    }
+  });
+};
+
+/* ------------------------------------------------------------------ */
+/* Customer                                                            */
+/* ------------------------------------------------------------------ */
 
 const registerCustomer = asyncHandler(async (req, res) => {
   const { firstName, lastName, email, phone, countryCode, password, town } = req.body;
@@ -325,6 +374,10 @@ const verifyPhone = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, null, "Phone verified"));
 });
 
+/* ------------------------------------------------------------------ */
+/* Restaurant partner                                                  */
+/* ------------------------------------------------------------------ */
+
 const registerRestaurant = asyncHandler(async (req, res) => {
   const {
     name, email, phone, countryCode, password,
@@ -358,12 +411,29 @@ const registerRestaurant = asyncHandler(async (req, res) => {
 
   await RestaurantWallet.create({ restaurant: partner._id });
 
+  const { branding, settings } = await getContext();
+
   try {
-    const { branding, settings } = await getContext();
     await emailService.partnerApplicationReceived(partner, { branding, settings });
+  } catch (err) {
+    logger.error("Applicant email failed", { email, error: err.message });
+  }
+
+  try {
     await smsService.partnerApplicationReceived(partner, {});
   } catch (err) {
-    logger.error("Partner notification failed", { email, error: err.message });
+    logger.error("Applicant SMS failed", { email, error: err.message });
+  }
+
+  try {
+    await notifyAdminsOfPartnerApplication({
+      partner,
+      partnerType: "restaurant",
+      branding,
+      settings,
+    });
+  } catch (err) {
+    logger.error("Admin notification failed", { email, error: err.message });
   }
 
   res.status(201).json(
@@ -374,6 +444,10 @@ const registerRestaurant = asyncHandler(async (req, res) => {
     )
   );
 });
+
+/* ------------------------------------------------------------------ */
+/* Transport partner                                                   */
+/* ------------------------------------------------------------------ */
 
 const registerTransport = asyncHandler(async (req, res) => {
   const {
@@ -409,12 +483,29 @@ const registerTransport = asyncHandler(async (req, res) => {
 
   await TransportWallet.create({ partner: partner._id });
 
+  const { branding, settings } = await getContext();
+
   try {
-    const { branding, settings } = await getContext();
     await emailService.partnerApplicationReceived(partner, { branding, settings });
+  } catch (err) {
+    logger.error("Applicant email failed", { email, error: err.message });
+  }
+
+  try {
     await smsService.partnerApplicationReceived(partner, {});
   } catch (err) {
-    logger.error("Partner notification failed", { email, error: err.message });
+    logger.error("Applicant SMS failed", { email, error: err.message });
+  }
+
+  try {
+    await notifyAdminsOfPartnerApplication({
+      partner,
+      partnerType: "transport",
+      branding,
+      settings,
+    });
+  } catch (err) {
+    logger.error("Admin notification failed", { email, error: err.message });
   }
 
   res.status(201).json(
@@ -425,6 +516,10 @@ const registerTransport = asyncHandler(async (req, res) => {
     )
   );
 });
+
+/* ------------------------------------------------------------------ */
+/* Accommodation partner                                               */
+/* ------------------------------------------------------------------ */
 
 const registerAccommodation = asyncHandler(async (req, res) => {
   const {
@@ -458,12 +553,29 @@ const registerAccommodation = asyncHandler(async (req, res) => {
 
   await AccommodationWallet.create({ partner: partner._id });
 
+  const { branding, settings } = await getContext();
+
   try {
-    const { branding, settings } = await getContext();
     await emailService.partnerApplicationReceived(partner, { branding, settings });
+  } catch (err) {
+    logger.error("Applicant email failed", { email, error: err.message });
+  }
+
+  try {
     await smsService.partnerApplicationReceived(partner, {});
   } catch (err) {
-    logger.error("Partner notification failed", { email, error: err.message });
+    logger.error("Applicant SMS failed", { email, error: err.message });
+  }
+
+  try {
+    await notifyAdminsOfPartnerApplication({
+      partner,
+      partnerType: "accommodation",
+      branding,
+      settings,
+    });
+  } catch (err) {
+    logger.error("Admin notification failed", { email, error: err.message });
   }
 
   res.status(201).json(

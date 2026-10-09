@@ -3,10 +3,12 @@ import AccommodationWallet from "../../models/accom/AccommodationWallet.js";
 import Branding from "../../models/admin/Branding.js";
 import SystemSetting from "../../models/admin/SystemSetting.js";
 import Location from "../../models/admin/Location.js";
+import Admin from "../../models/admin/Admin.js";
 import { slugify } from "../../utils/helpers.js";
 import ApiError from "../../utils/apiError.js";
 import asyncHandler from "../../utils/asyncHandler.js";
 import * as emailService from "../../services/emailService.js";
+import * as smsService from "../../services/smsService.js";
 import logger from "../../utils/logger.js";
 
 const getContext = async () => {
@@ -19,6 +21,50 @@ const resolveLocation = async (towns) => {
   const ids = Array.isArray(towns) ? towns.filter(Boolean) : [];
   if (ids.length === 0) return null;
   return Location.findById(ids[0]).lean();
+};
+
+const getAdminRecipients = async () => {
+  return Admin.find({ isDeleted: false, status: "active" })
+    .select("firstName lastName email")
+    .lean();
+};
+
+const notifyAdminsOfPartnerApplication = async ({
+  partner,
+  partnerType,
+  branding,
+  settings,
+}) => {
+  const admins = await getAdminRecipients();
+
+  if (!admins.length) {
+    logger.warn("No active admins to notify for partner application", {
+      partnerType,
+      partnerEmail: partner.email,
+    });
+    return;
+  }
+
+  const results = await Promise.allSettled(
+    admins.map((admin) =>
+      emailService.adminNewPartnerApplication(admin, {
+        branding,
+        settings,
+        partnerType,
+        partner,
+      })
+    )
+  );
+
+  results.forEach((r, i) => {
+    if (r.status === "rejected") {
+      logger.error("Admin partner-application email failed", {
+        adminEmail: admins[i].email,
+        partnerType,
+        error: r.reason?.message,
+      });
+    }
+  });
 };
 
 const register = asyncHandler(async (req, res) => {
@@ -89,16 +135,34 @@ const register = asyncHandler(async (req, res) => {
   await AccommodationWallet.create({ partner: partner._id });
 
   const { branding, settings } = await getContext();
+
+  // Applicant email
   try {
     await emailService.partnerApplicationReceived(partner, {
       branding,
       settings,
     });
   } catch (err) {
-    logger.error("Partner notification failed", {
-      email,
-      error: err.message,
+    logger.error("Applicant email failed", { email, error: err.message });
+  }
+
+  // Applicant SMS
+  try {
+    await smsService.partnerApplicationReceived(partner, {});
+  } catch (err) {
+    logger.error("Applicant SMS failed", { email, error: err.message });
+  }
+
+  // Admin notifications
+  try {
+    await notifyAdminsOfPartnerApplication({
+      partner,
+      partnerType: "accommodation",
+      branding,
+      settings,
     });
+  } catch (err) {
+    logger.error("Admin notification failed", { email, error: err.message });
   }
 
   res.status(201).json({
