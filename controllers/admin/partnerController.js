@@ -69,6 +69,7 @@ const getModel = (type) => {
 const list = asyncHandler(async (req, res) => {
   const { type } = req.params;
   const { status, search, page = 1, limit = 20 } = req.query;
+  const normalized = normalizeType(type);
   const Model = getModel(type);
 
   const filter = { isDeleted: false };
@@ -89,9 +90,16 @@ const list = asyncHandler(async (req, res) => {
     Model.countDocuments(filter),
   ]);
 
+  const enriched = items.map((doc) => {
+    const obj = doc.toObject();
+    obj.type = normalized;
+    obj.category = normalized;
+    return obj;
+  });
+
   res.status(200).json(
     new ApiResponse(200, {
-      items,
+      items: enriched,
       total,
       page: Number(page),
       limit: Number(limit),
@@ -108,6 +116,9 @@ const details = asyncHandler(async (req, res) => {
   const partner = await Model.findById(id).lean();
   if (!partner) throw new ApiError(404, "Partner not found");
 
+  partner.type = normalized;
+  partner.category = normalized;
+
   const WalletModel =
     normalized === "transport"
       ? TransportWallet
@@ -122,6 +133,7 @@ const details = asyncHandler(async (req, res) => {
 
 const approve = asyncHandler(async (req, res) => {
   const { type, id } = req.params;
+  const normalized = normalizeType(type);
   const Model = getModel(type);
 
   const partner = await Model.findById(id);
@@ -136,12 +148,17 @@ const approve = asyncHandler(async (req, res) => {
   const { branding, settings } = await getContext();
   await emailService.partnerApproved(partner, { branding, settings });
 
-  res.status(200).json(new ApiResponse(200, partner, "Partner approved"));
+  const obj = partner.toObject();
+  obj.type = normalized;
+  obj.category = normalized;
+
+  res.status(200).json(new ApiResponse(200, obj, "Partner approved"));
 });
 
 const reject = asyncHandler(async (req, res) => {
   const { type, id } = req.params;
   const { reason } = req.body;
+  const normalized = normalizeType(type);
   const Model = getModel(type);
 
   const partner = await Model.findById(id);
@@ -158,12 +175,17 @@ const reject = asyncHandler(async (req, res) => {
     settings,
   });
 
-  res.status(200).json(new ApiResponse(200, partner, "Partner rejected"));
+  const obj = partner.toObject();
+  obj.type = normalized;
+  obj.category = normalized;
+
+  res.status(200).json(new ApiResponse(200, obj, "Partner rejected"));
 });
 
 const suspend = asyncHandler(async (req, res) => {
   const { type, id } = req.params;
   const { reason } = req.body;
+  const normalized = normalizeType(type);
   const Model = getModel(type);
 
   const partner = await Model.findById(id);
@@ -179,11 +201,16 @@ const suspend = asyncHandler(async (req, res) => {
     settings,
   });
 
-  res.status(200).json(new ApiResponse(200, partner, "Partner suspended"));
+  const obj = partner.toObject();
+  obj.type = normalized;
+  obj.category = normalized;
+
+  res.status(200).json(new ApiResponse(200, obj, "Partner suspended"));
 });
 
 const reactivate = asyncHandler(async (req, res) => {
   const { type, id } = req.params;
+  const normalized = normalizeType(type);
   const Model = getModel(type);
 
   const partner = await Model.findById(id);
@@ -195,7 +222,11 @@ const reactivate = asyncHandler(async (req, res) => {
   const { branding, settings } = await getContext();
   await emailService.partnerReactivated(partner, { branding, settings });
 
-  res.status(200).json(new ApiResponse(200, partner, "Partner reactivated"));
+  const obj = partner.toObject();
+  obj.type = normalized;
+  obj.category = normalized;
+
+  res.status(200).json(new ApiResponse(200, obj, "Partner reactivated"));
 });
 
 const hardDelete = asyncHandler(async (req, res) => {

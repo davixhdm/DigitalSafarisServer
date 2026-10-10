@@ -96,6 +96,11 @@ restaurantPartnerSchema.index({ isOpen: 1, isAcceptingOrders: 1 });
 restaurantPartnerSchema.index({ latitude: 1, longitude: 1 });
 restaurantPartnerSchema.index({ name: "text", description: "text" });
 
+restaurantPartnerSchema.virtual("type").get(() => "restaurant");
+restaurantPartnerSchema.virtual("category").get(() => "restaurant");
+restaurantPartnerSchema.set("toJSON", { virtuals: true });
+restaurantPartnerSchema.set("toObject", { virtuals: true });
+
 const RestaurantPartner = mongoose.model("RestaurantPartner", restaurantPartnerSchema);
 
 export default RestaurantPartner;

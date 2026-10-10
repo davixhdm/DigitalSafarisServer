@@ -83,6 +83,11 @@ transportPartnerSchema.index({ location: 1, town: 1 });
 transportPartnerSchema.index({ isOnline: 1, isAvailable: 1 });
 transportPartnerSchema.index({ latitude: 1, longitude: 1 });
 
+transportPartnerSchema.virtual("type").get(() => "transport");
+transportPartnerSchema.virtual("category").get(() => "transport");
+transportPartnerSchema.set("toJSON", { virtuals: true });
+transportPartnerSchema.set("toObject", { virtuals: true });
+
 const TransportPartner = mongoose.model("TransportPartner", transportPartnerSchema);
 
 export default TransportPartner;

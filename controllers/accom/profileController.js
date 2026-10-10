@@ -74,6 +74,23 @@ const uploadLogo = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, { logo: url, publicId }, "Logo updated"));
 });
 
+const uploadAvatar = asyncHandler(async (req, res) => {
+  if (!req.file) throw new ApiError(400, "File required");
+
+  const { url, publicId } = await uploadFile(
+    req.file.buffer,
+    req.file.originalname,
+    "accommodations/avatars"
+  );
+
+  await AccommodationPartner.updateOne(
+    { _id: req.partner._id },
+    { $set: { avatar: url } }
+  );
+
+  res.status(200).json(new ApiResponse(200, { avatar: url, publicId }, "Profile photo updated"));
+});
+
 const uploadCover = asyncHandler(async (req, res) => {
   if (!req.file) throw new ApiError(400, "File required");
 
@@ -91,4 +108,4 @@ const uploadCover = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, { coverImage: url, publicId }, "Cover updated"));
 });
 
-export { get, update, uploadLogo, uploadCover };
+export { get, update, uploadAvatar, uploadLogo, uploadCover };

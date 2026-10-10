@@ -16,6 +16,7 @@ const accommodationPartnerSchema = new mongoose.Schema(
     phone: { type: String, required: true, unique: true, trim: true },
     countryCode: { type: String, default: "+254", trim: true },
     password: { type: String, required: true, select: false },
+    avatar: { type: String, default: null },
     logo: { type: String, default: null },
     coverImage: { type: String, default: null },
     description: { type: String, default: "" },
@@ -82,6 +83,10 @@ accommodationPartnerSchema.index({ isDeleted: 1, status: 1 });
 accommodationPartnerSchema.index({ location: 1, town: 1 });
 accommodationPartnerSchema.index({ latitude: 1, longitude: 1 });
 accommodationPartnerSchema.index({ name: "text", description: "text" });
+
+accommodationPartnerSchema.virtual("category").get(() => "accommodation");
+accommodationPartnerSchema.set("toJSON", { virtuals: true });
+accommodationPartnerSchema.set("toObject", { virtuals: true });
 
 const AccommodationPartner = mongoose.model("AccommodationPartner", accommodationPartnerSchema);
 

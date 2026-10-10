@@ -3,6 +3,7 @@ import multer from "multer";
 import {
   get,
   update,
+  uploadAvatar,
   uploadLogo,
   uploadCover,
 } from "../../controllers/accom/profileController.js";
@@ -17,6 +18,12 @@ const uploader = multer({
 
 router.get("/", authenticateAccommodation, get);
 router.patch("/", authenticateAccommodation, update);
+router.post(
+  "/avatar",
+  authenticateAccommodation,
+  uploader.single("file"),
+  uploadAvatar
+);
 router.post(
   "/logo",
   authenticateAccommodation,
